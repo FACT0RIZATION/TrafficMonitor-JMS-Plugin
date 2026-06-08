@@ -6,11 +6,12 @@
 // 全局单例
 static CJmsPlugin g_plugin;
 
-// DLL 模块句柄（由 DllMain 设置）
+// 静态成员定义
 HINSTANCE CJmsPlugin::s_hInst = NULL;
+bool CJmsPlugin::s_dlgRegistered = false;
 
-// 设置对话框中编辑框的控件 ID
-#define IDC_API_URL_EDIT 1001
+// 对话框窗口类名
+static const wchar_t* DLG_CLASS = L"JMSPluginSettingsDlg";
 
 CJmsPlugin& CJmsPlugin::Instance()
 {
@@ -18,13 +19,7 @@ CJmsPlugin& CJmsPlugin::Instance()
 }
 
 CJmsPlugin::CJmsPlugin()
-    : m_name(L"Just My Socks 流量监控")
-    , m_description(L"在任务栏显示 Just My Socks 代理的已用流量和总流量")
-    , m_author(L"FACT0RIZATION")
-    , m_copyright(L"Copyright (C) 2026")
-    , m_version(L"1.0.0")
-    , m_url(L"https://justmysocks.net")
-    , m_initialized(false)
+    : m_initialized(false)
 {
     InitializeCriticalSection(&m_cs);
 }
@@ -48,12 +43,12 @@ void CJmsPlugin::DataRequired()
         m_initialized = true;
         if (!m_config.Load())
         {
-            m_tooltipText = L"JMS: 未找到配置文件，请右击 → 插件设置 → 填入 API URL";
+            m_tooltipText = L"JMS: no config file. Right-click -> Plugin Settings to set API URL";
             return;
         }
         if (m_config.GetApiUrl().empty())
         {
-            m_tooltipText = L"JMS: API URL 为空，请右击 → 插件设置 → 配置";
+            m_tooltipText = L"JMS: API URL is empty. Right-click -> Plugin Settings to configure";
             return;
         }
     }
@@ -87,11 +82,11 @@ void CJmsPlugin::RefreshData()
 
         wchar_t tip[512] = {};
         swprintf_s(tip,
-            L"Just My Socks 流量\n"
-            L"已用: %s / %s\n"
-            L"剩余: %s (%.1f%%)\n"
-            L"使用率: %.1f%%\n"
-            L"每月 %d 日重置",
+            L"Just My Socks\n"
+            L"Used: %s / %s\n"
+            L"Remaining: %s (%.1f%%)\n"
+            L"Usage: %.1f%%\n"
+            L"Reset day: %d",
             CJmsItem::FormatBytes(data.bw_counter_b).c_str(),
             CJmsItem::FormatBytes(data.monthly_bw_limit_b).c_str(),
             CJmsItem::FormatBytes(remaining).c_str(),
@@ -106,7 +101,7 @@ void CJmsPlugin::RefreshData()
     else
     {
         m_item.UpdateData(JmsBandwidthData{});
-        m_tooltipText = L"JMS: API 请求失败\n请检查 API URL 是否正确";
+        m_tooltipText = L"JMS: API request failed. Check your API URL";
     }
 
     LeaveCriticalSection(&m_cs);
@@ -116,100 +111,74 @@ const wchar_t* CJmsPlugin::GetInfo(PluginInfoIndex index)
 {
     switch (index)
     {
-    case TMI_NAME:          return m_name.c_str();
-    case TMI_DESCRIPTION:   return m_description.c_str();
-    case TMI_AUTHOR:        return m_author.c_str();
-    case TMI_COPYRIGHT:     return m_copyright.c_str();
-    case TMI_VERSION:       return m_version.c_str();
-    case TMI_URL:           return m_url.c_str();
+    case TMI_NAME:          return L"Just My Socks Traffic";
+    case TMI_DESCRIPTION:   return L"Display Just My Socks bandwidth usage in taskbar";
+    case TMI_AUTHOR:        return L"FACT0RIZATION";
+    case TMI_COPYRIGHT:     return L"Copyright (C) 2026";
+    case TMI_VERSION:       return L"1.0.0";
+    case TMI_URL:           return L"https://github.com/FACT0RIZATION/TrafficMonitor-JMS-Plugin";
     default:                return L"";
     }
 }
 
 // ============================================================
-// 设置对话框 — 使用 DialogBoxIndirectParamW + 内存模板
+// 设置对话框 — 使用 CreateWindowEx + 模态消息循环
 // ============================================================
 
-// 辅助：构建对话框模板的缓冲区
-class CDlgTemplateBuilder
-{
-public:
-    std::vector<BYTE> buf;
-
-    void AlignTo(DWORD alignment)
-    {
-        while (buf.size() % alignment != 0)
-            buf.push_back(0);
-    }
-
-    void WriteWord(WORD w)
-    {
-        AlignTo(2);
-        buf.insert(buf.end(), (BYTE*)&w, (BYTE*)&w + sizeof(w));
-    }
-
-    void WriteDword(DWORD d)
-    {
-        AlignTo(4);
-        buf.insert(buf.end(), (BYTE*)&d, (BYTE*)&d + sizeof(d));
-    }
-
-    void WriteString(const wchar_t* s)
-    {
-        size_t len = (wcslen(s) + 1) * sizeof(wchar_t);
-        buf.insert(buf.end(), (BYTE*)s, (BYTE*)s + len);
-    }
-
-    void WriteByte(BYTE b)
-    {
-        buf.push_back(b);
-    }
-
-    // 添加一个预定义类的控件（Button/Edit/Static）
-    void AddControl(DWORD style, WORD id,
-                    short x, short y, short cx, short cy,
-                    WORD classAtom, const wchar_t* text)
-    {
-        AlignTo(4);
-        WriteDword(style);
-        WriteDword(0);                          // dwExtendedStyle
-        WriteWord(x); WriteWord(y);
-        WriteWord(cx); WriteWord(cy);
-        WriteWord(id);                          // 控件 ID（WORD）
-        WriteWord(0xFFFF);                      // 预定义类标记
-        WriteWord(classAtom);                   // 类原子
-        WriteString(text);                      // 控件文本
-        WriteWord(0);                           // 无附加创建数据
-    }
-};
-
-INT_PTR CALLBACK CJmsPlugin::SettingsDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK CJmsPlugin::SettingsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg)
     {
-    case WM_INITDIALOG:
+    case WM_CREATE:
     {
-        // 把当前 URL 设置到编辑框
+        // 标签
+        CreateWindowExW(0, L"Static",
+            L"Just My Socks API URL (from JMS admin -> Service -> API):",
+            WS_CHILD | WS_VISIBLE,
+            12, 10, 316, 16,
+            hWnd, (HMENU)IDC_LABEL, s_hInst, NULL);
+
+        // 编辑框
+        HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"Edit",
+            L"",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+            12, 30, 316, 22,
+            hWnd, (HMENU)IDC_EDIT_URL, s_hInst, NULL);
+
+        // 填入当前 URL
         const std::wstring& url = CJmsPlugin::Instance().m_config.GetApiUrl();
-        SetDlgItemTextW(hDlg, IDC_API_URL_EDIT, url.c_str());
-        // 编辑框获得焦点
-        SetFocus(GetDlgItem(hDlg, IDC_API_URL_EDIT));
-        // 全选文字方便直接替换
-        SendDlgItemMessageW(hDlg, IDC_API_URL_EDIT, EM_SETSEL, 0, -1);
-        return FALSE;   // 因为我们手动设置了焦点
+        SetWindowTextW(hEdit, url.c_str());
+
+        // 确定按钮
+        CreateWindowExW(0, L"Button",
+            L"OK",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+            170, 65, 70, 26,
+            hWnd, (HMENU)IDC_BTN_OK, s_hInst, NULL);
+
+        // 取消按钮
+        CreateWindowExW(0, L"Button",
+            L"Cancel",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+            250, 65, 70, 26,
+            hWnd, (HMENU)IDC_BTN_CANCEL, s_hInst, NULL);
+
+        // 全选编辑框文字
+        SendDlgItemMessageW(hWnd, IDC_EDIT_URL, EM_SETSEL, 0, -1);
+        SetFocus(hEdit);
+        return 0;
     }
 
     case WM_COMMAND:
-        switch (LOWORD(wParam))
+    {
+        WORD id = LOWORD(wParam);
+        if (id == IDC_BTN_OK)
         {
-        case IDOK:
-        {
-            // 获取编辑框中的 URL
             wchar_t url[2048] = {};
-            GetDlgItemTextW(hDlg, IDC_API_URL_EDIT, url, 2048);
+            GetDlgItemTextW(hWnd, IDC_EDIT_URL, url, 2048);
 
-            // 去除首尾空白
             std::wstring newUrl(url);
+            // 去除首尾空白
             while (!newUrl.empty() && newUrl.back() == L' ')
                 newUrl.pop_back();
             while (!newUrl.empty() && newUrl.front() == L' ')
@@ -217,131 +186,107 @@ INT_PTR CALLBACK CJmsPlugin::SettingsDlgProc(HWND hDlg, UINT msg, WPARAM wParam,
 
             if (!newUrl.empty())
             {
-                // 保存到配置文件
                 CJmsPlugin::Instance().m_config.Save(newUrl);
-                EndDialog(hDlg, IDOK);
+                DestroyWindow(hWnd);
             }
             else
             {
-                MessageBoxW(hDlg,
-                    L"API URL 不能为空，请输入正确的 Just My Socks API 地址。",
-                    L"输入无效", MB_OK | MB_ICONWARNING);
+                MessageBoxW(hWnd,
+                    L"API URL cannot be empty.",
+                    L"Invalid input", MB_OK | MB_ICONWARNING);
             }
-            return TRUE;
+            return 0;
         }
-
-        case IDCANCEL:
-            EndDialog(hDlg, IDCANCEL);
-            return TRUE;
+        else if (id == IDC_BTN_CANCEL || id == IDCANCEL)
+        {
+            DestroyWindow(hWnd);
+            return 0;
         }
         break;
+    }
 
     case WM_CLOSE:
-        EndDialog(hDlg, IDCANCEL);
-        return TRUE;
+        DestroyWindow(hWnd);
+        return 0;
+
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        return 0;
     }
 
-    return FALSE;
+    return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
-// 构建设置对话框并显示
 ITMPlugin::OptionReturn CJmsPlugin::ShowOptionsDialog(void* hParent)
 {
-    CDlgTemplateBuilder tb;
-
-    // ======== 对话框头 ========
-    DLGTEMPLATE dlgHeader = {};
-    dlgHeader.style = DS_MODALFRAME | DS_SETFONT | DS_CENTER |
-                      WS_POPUP | WS_CAPTION | WS_SYSMENU;
-    dlgHeader.dwExtendedStyle = 0;
-    dlgHeader.cdit = 4;             // 4 个控件
-    dlgHeader.x = 0;
-    dlgHeader.y = 0;
-    dlgHeader.cx = 340;             // 宽度
-    dlgHeader.cy = 130;             // 高度
-
-    tb.AlignTo(4);
-    tb.WriteDword(dlgHeader.style);
-    tb.WriteDword(dlgHeader.dwExtendedStyle);
-    tb.WriteWord(dlgHeader.cdit);
-    tb.WriteWord(dlgHeader.x);
-    tb.WriteWord(dlgHeader.y);
-    tb.WriteWord(dlgHeader.cx);
-    tb.WriteWord(dlgHeader.cy);
-
-    // 菜单 (0 = 无)
-    tb.WriteWord(0);
-    // 类 (0 = 默认)
-    tb.WriteWord(0);
-    // 标题
-    tb.WriteString(L"JMS 插件设置");
-    // 字体 (DS_SETFONT)
-    tb.WriteWord(9);                // 字号
-    tb.WriteWord(0);                // 字重 (0=默认)
-    tb.WriteByte(0);                // 斜体
-    tb.WriteByte(0);                // 字符集
-    tb.WriteString(L"Microsoft Sans Serif");
-
-    // ======== 控件 1: 静态标签 ========
-    tb.AddControl(
-        SS_LEFT | WS_CHILD | WS_VISIBLE,
-        -1,                         // IDC_STATIC
-        12, 10, 316, 12,
-        0x0082,                     // Static class
-        L"Just My Socks API URL（登录 JMS 后台 → Service → API 获取）:"
-    );
-
-    // ======== 控件 2: 编辑框 ========
-    tb.AddControl(
-        WS_BORDER | WS_CHILD | WS_VISIBLE | WS_TABSTOP |
-        ES_LEFT | ES_AUTOHSCROLL,
-        IDC_API_URL_EDIT,
-        12, 26, 316, 48,
-        0x0081,                     // Edit class
-        L""
-    );
-
-    // ======== 控件 3: "确定"按钮 ========
-    tb.AddControl(
-        BS_PUSHBUTTON | WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        IDOK,
-        170, 88, 70, 25,
-        0x0080,                     // Button class
-        L"确定"
-    );
-
-    // ======== 控件 4: "取消"按钮 ========
-    tb.AddControl(
-        BS_PUSHBUTTON | WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        IDCANCEL,
-        250, 88, 70, 25,
-        0x0080,                     // Button class
-        L"取消"
-    );
-
-    // 显示对话框
-    INT_PTR result = DialogBoxIndirectParamW(
-        s_hInst,
-        (LPDLGTEMPLATE)tb.buf.data(),
-        (HWND)hParent,
-        SettingsDlgProc,
-        (LPARAM)this
-    );
-
-    if (result == IDOK)
+    // 注册窗口类（仅首次）
+    if (!s_dlgRegistered)
     {
-        // 设置已更改，立即刷新数据
-        RefreshData();
-        return OR_OPTION_CHANGED;
+        WNDCLASSEXW wc = {};
+        wc.cbSize = sizeof(wc);
+        wc.style = CS_HREDRAW | CS_VREDRAW;
+        wc.lpfnWndProc = SettingsWndProc;
+        wc.hInstance = s_hInst;
+        wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+        wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+        wc.lpszClassName = DLG_CLASS;
+        RegisterClassExW(&wc);
+        s_dlgRegistered = true;
     }
 
-    return OR_OPTION_UNCHANGED;
+    // 创建窗口
+    HWND hWnd = CreateWindowExW(
+        WS_EX_DLGMODALFRAME | WS_EX_TOOLWINDOW,
+        DLG_CLASS, L"JMS Plugin Settings",
+        WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        352, 140,
+        (HWND)hParent, NULL, s_hInst, NULL);
+
+    if (!hWnd)
+        return OR_OPTION_NOT_PROVIDED;
+
+    // 居中到父窗口
+    RECT rc, rcParent;
+    GetWindowRect(hWnd, &rc);
+    if (hParent)
+    {
+        GetWindowRect((HWND)hParent, &rcParent);
+        SetWindowPos(hWnd, NULL,
+            rcParent.left + (rcParent.right - rcParent.left - (rc.right - rc.left)) / 2,
+            rcParent.top + (rcParent.bottom - rcParent.top - (rc.bottom - rc.top)) / 2,
+            0, 0, SWP_NOSIZE | SWP_NOZORDER);
+    }
+
+    // 模态消息循环
+    HWND hParentWnd = (HWND)hParent;
+    if (hParentWnd) EnableWindow(hParentWnd, FALSE);
+
+    MSG msg;
+    BOOL ret;
+    while ((ret = GetMessageW(&msg, NULL, 0, 0)) > 0)
+    {
+        if (!IsDialogMessageW(hWnd, &msg))
+        {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+
+    if (hParentWnd)
+    {
+        EnableWindow(hParentWnd, TRUE);
+        SetFocus(hParentWnd);
+    }
+
+    // 判断是否修改了配置
+    return OR_OPTION_CHANGED;
 }
 
 const wchar_t* CJmsPlugin::GetTooltipInfo()
 {
     if (m_tooltipText.empty())
-        return L"Just My Socks 流量\n等待初始化...";
+        return L"Just My Socks\nWaiting for initialization...";
     return m_tooltipText.c_str();
 }
 

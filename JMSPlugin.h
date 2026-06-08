@@ -23,9 +23,6 @@ public:
     virtual const wchar_t* GetTooltipInfo() override;
     virtual void OnExtenedInfo(ExtendedInfoIndex index, const wchar_t* data) override;
 
-    // 设置对话框过程（static 回调）
-    static INT_PTR CALLBACK SettingsDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam);
-
     // DLL 模块实例句柄（由 DllMain 设置）
     static HINSTANCE s_hInst;
 
@@ -34,18 +31,17 @@ private:
     CJmsApiClient m_apiClient;
     CJmsConfig m_config;
 
-    std::wstring m_name;
-    std::wstring m_description;
-    std::wstring m_author;
-    std::wstring m_copyright;
-    std::wstring m_version;
-    std::wstring m_url;
-
     std::wstring m_tooltipText;
     CRITICAL_SECTION m_cs;
     bool m_initialized;
 
     void RefreshData();
+
+    // 设置对话框窗口过程
+    static LRESULT CALLBACK SettingsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    static bool s_dlgRegistered;
+
+    enum { IDC_EDIT_URL = 1001, IDC_BTN_OK = 1002, IDC_BTN_CANCEL = 1003, IDC_LABEL = 1004 };
 };
 
 // DLL 导出函数
