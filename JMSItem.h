@@ -31,7 +31,4 @@ private:
     std::wstring m_valueText;
     std::wstring m_detailText;   // 完整详细信息（tooltip 用）
     bool m_dataValid;
-
-    // 格式化字节数
-    static std::wstring FormatBytes(long long bytes);
 };
