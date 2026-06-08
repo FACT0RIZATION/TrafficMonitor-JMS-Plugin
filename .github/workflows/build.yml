@@ -1,0 +1,42 @@
+name: Build
+
+on:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:      # 支持手动触发
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        platform: [x64, Win32]
+
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: 编译 (${{ matrix.platform }})
+        run: |
+          msbuild JMSPlugin.sln `
+            /p:Configuration=Release `
+            /p:Platform=${{ matrix.platform }} `
+            /p:WindowsTargetPlatformVersion=10.0 `
+            /t:Rebuild `
+            /m
+
+      - name: 上传 DLL 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: JMSPlugin-${{ matrix.platform }}
+          path: bin\${{ matrix.platform }}\Release\JMSPlugin.dll
+          if-no-files-found: error

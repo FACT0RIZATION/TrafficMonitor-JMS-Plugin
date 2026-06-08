@@ -1,0 +1,13 @@
+# 编译输出
+bin/
+obj/
+*.obj
+*.lib
+*.exp
+*.pdb
+*.ilk
+
+# VS 用户设置
+.vs/
+*.user
+*.suo
