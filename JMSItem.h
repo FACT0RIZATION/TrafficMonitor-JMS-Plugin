@@ -23,6 +23,9 @@ public:
     // 已用/总量字符串
     const std::wstring& GetDetailText() const { return m_detailText; }
 
+    // 格式化字节数（公有，供其他类使用）
+    static std::wstring FormatBytes(long long bytes);
+
 private:
     std::wstring m_labelText;
     std::wstring m_valueText;

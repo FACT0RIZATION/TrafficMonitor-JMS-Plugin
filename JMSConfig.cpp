@@ -2,34 +2,39 @@
 #include <windows.h>
 #include <string>
 
+// dllmain.cpp 中设置的全局模块句柄
+extern HINSTANCE g_hPluginInst;
+
 CJmsConfig::CJmsConfig()
 {
 }
 
-bool CJmsConfig::Load()
+// 获取 DLL 所在目录
+static std::wstring GetDllDirectory()
 {
-    // 获取 DLL 自身路径
-    std::wstring dllDir;
-    HMODULE hModule = NULL;
-    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           (LPCWSTR)&CJmsConfig::Load, &hModule))
+    if (!g_hPluginInst)
+        return L"";
+
+    wchar_t dllPath[MAX_PATH] = {};
+    if (GetModuleFileNameW(g_hPluginInst, dllPath, MAX_PATH))
     {
-        wchar_t dllPath[MAX_PATH] = {};
-        if (GetModuleFileNameW(hModule, dllPath, MAX_PATH))
+        std::wstring path(dllPath);
+        size_t pos = path.find_last_of(L"\\/");
+        if (pos != std::wstring::npos)
         {
-            std::wstring path(dllPath);
-            size_t pos = path.find_last_of(L"\\/");
-            if (pos != std::wstring::npos)
-            {
-                dllDir = path.substr(0, pos);
-            }
+            return path.substr(0, pos);
         }
     }
+    return L"";
+}
+
+bool CJmsConfig::Load()
+{
+    std::wstring dllDir = GetDllDirectory();
 
     // 依次尝试以下路径
     std::wstring searchPaths[] = {
-        // 1. 插件配置目录（由主程序传入）
+        // 1. 插件配置目录（由主程序通过 OnExtenedInfo 传入）
         m_configDir.empty() ? L"" : (m_configDir + L"\\jms_config.ini"),
         // 2. DLL 同目录
         dllDir.empty() ? L"" : (dllDir + L"\\jms_config.ini"),
@@ -62,7 +67,7 @@ bool CJmsConfig::Load()
         }
     }
 
-    // 都没找到，如果 DLL 目录存在就把它设为默认保存路径
+    // 都没找到，用 DLL 目录作为默认保存位置
     if (!dllDir.empty())
     {
         m_configPath = dllDir + L"\\jms_config.ini";
@@ -80,24 +85,11 @@ bool CJmsConfig::Save(const std::wstring& apiUrl)
     if (m_configPath.empty())
     {
         // 尝试找个地方保存
-        HMODULE hModule = NULL;
-        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                               (LPCWSTR)&CJmsConfig::Load, &hModule))
-        {
-            wchar_t dllPath[MAX_PATH] = {};
-            if (GetModuleFileNameW(hModule, dllPath, MAX_PATH))
-            {
-                std::wstring path(dllPath);
-                size_t pos = path.find_last_of(L"\\/");
-                if (pos != std::wstring::npos)
-                {
-                    m_configPath = path.substr(0, pos) + L"\\jms_config.ini";
-                }
-            }
-        }
-        if (m_configPath.empty())
-            return false;
+        std::wstring dllDir = GetDllDirectory();
+        if (!dllDir.empty())
+            m_configPath = dllDir + L"\\jms_config.ini";
+        else
+            m_configPath = L"jms_config.ini";
     }
 
     // 写入配置文件

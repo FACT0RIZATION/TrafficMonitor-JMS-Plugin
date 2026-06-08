@@ -258,7 +258,7 @@ ITMPlugin::OptionReturn CJmsPlugin::ShowOptionsDialog(void* hParent)
     dlgHeader.x = 0;
     dlgHeader.y = 0;
     dlgHeader.cx = 340;             // 宽度
-    dlgHeader.dy = 130;             // 高度
+    dlgHeader.cy = 130;             // 高度
 
     tb.AlignTo(4);
     tb.WriteDword(dlgHeader.style);
@@ -267,7 +267,7 @@ ITMPlugin::OptionReturn CJmsPlugin::ShowOptionsDialog(void* hParent)
     tb.WriteWord(dlgHeader.x);
     tb.WriteWord(dlgHeader.y);
     tb.WriteWord(dlgHeader.cx);
-    tb.WriteWord(dlgHeader.dy);
+    tb.WriteWord(dlgHeader.cy);
 
     // 菜单 (0 = 无)
     tb.WriteWord(0);

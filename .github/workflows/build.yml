@@ -3,36 +3,48 @@ name: Build
 on:
   push:
     branches: [ main, master ]
-    paths-ignore:
-      - '**.md'
-      - '.gitignore'
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        platform: [x64, Win32]
-
-    runs-on: windows-2022
-
+  build-x64:
+    runs-on: windows-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
-
-      - name: 安装 MSBuild
-        uses: microsoft/setup-msbuild@v2
-
-      - name: 编译 (${{ matrix.platform }})
-        shell: cmd
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: 显示环境
+        shell: pwsh
         run: |
-          msbuild JMSPlugin.sln /p:Configuration=Release /p:Platform=${{ matrix.platform }} /t:Rebuild /m
-
-      - name: 上传 DLL 产物
+          msbuild /version
+          echo "---"
+          dir "C:\Program Files\Microsoft Visual Studio\2022" -ErrorAction SilentlyContinue
+          dir "C:\Program Files\Microsoft Visual Studio" -ErrorAction SilentlyContinue
+      - name: 编译 x64
+        shell: cmd
+        run: msbuild JMSPlugin.sln /p:Configuration=Release /p:Platform=x64 /t:Rebuild /m /v:normal
+      - name: 上传 DLL
         uses: actions/upload-artifact@v4
         with:
-          name: JMSPlugin-${{ matrix.platform }}
-          path: bin\${{ matrix.platform }}\Release\JMSPlugin.dll
+          name: JMSPlugin-x64
+          path: bin\x64\Release\JMSPlugin.dll
+          if-no-files-found: error
+
+  build-Win32:
+    runs-on: windows-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: 编译 Win32
+        shell: cmd
+        run: msbuild JMSPlugin.sln /p:Configuration=Release /p:Platform=Win32 /t:Rebuild /m /v:normal
+      - name: 上传 DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: JMSPlugin-Win32
+          path: bin\Win32\Release\JMSPlugin.dll
           if-no-files-found: error
