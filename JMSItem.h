@@ -24,7 +24,8 @@ public:
     const std::wstring& GetDetailText() const { return m_detailText; }
 
     // 格式化字节数（公有，供其他类使用）
-    static std::wstring FormatBytes(long long bytes);
+    // decimals: 小数位数，-1 表示自动（B 用0，其他用 decimals 位）
+    static std::wstring FormatBytes(long long bytes, int decimals = 1);
 
 private:
     std::wstring m_labelText;
